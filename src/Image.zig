@@ -116,18 +116,30 @@ pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Self {
     };
 }
 
-pub fn toFile(self: *Self, path: []const u8) !void {
-    const file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
+pub fn toBytes(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+    var array = std.ArrayList(u8).init(allocator);
+    defer array.deinit();
 
-    try file.writer().print("P{d}\n{d} {d}\n{d}\n", .{
+    try array.writer().print("P{d}\n{d} {d}\n{d}\n", .{
         @intFromEnum(self.header.image_format),
         self.header.width,
         self.header.height,
         self.header.max_color_value,
     });
 
-    try file.writer().writeAll(self.data);
+    try array.writer().writeAll(self.data);
+
+    return array.toOwnedSlice();
+}
+
+pub fn toFile(self: *Self, path: []const u8, allocator: std.mem.Allocator) !void {
+    const file = try std.fs.cwd().createFile(path, .{});
+    defer file.close();
+
+    const bytes = try self.toBytes(allocator);
+    defer allocator.free(bytes);
+
+    try file.writer().writeAll(bytes);
 }
 
 pub fn empty(allocator: std.mem.Allocator, header: Header) !Self {
@@ -137,6 +149,9 @@ pub fn empty(allocator: std.mem.Allocator, header: Header) !Self {
     };
 
     const data = try allocator.alloc(u8, data_size);
+    for (0..data_size) |i| {
+        data[i] = 0;
+    }
 
     return Self{
         .header = header,
@@ -145,8 +160,8 @@ pub fn empty(allocator: std.mem.Allocator, header: Header) !Self {
 }
 
 pub const Coordinates = struct {
-    x: u32,
-    y: u32,
+    x: usize,
+    y: usize,
 
     pub const default = Coordinates{
         .x = 0,
@@ -180,7 +195,12 @@ pub fn getPixel(self: *Self, coords: Coordinates) Pixel {
     }
 }
 
-pub fn setPixel(self: *Self, coords: Coordinates, pixel: Pixel) void {
+pub fn setPixel(self: *Self, coords: Coordinates, pixel: Pixel) !void {
+    if (coords.x >= self.header.width or coords.y >= self.header.height) {
+        std.log.err("Coordinates out of bounds: ({}, {})", .{ coords.x, coords.y });
+        return error.OutOfBounds;
+    }
+
     switch (self.header.image_format) {
         .ASCII_PPM, .PPM => {
             const red_data_address = 3 * (coords.x + self.header.width * coords.y);
@@ -197,12 +217,241 @@ pub fn setPixel(self: *Self, coords: Coordinates, pixel: Pixel) void {
     }
 }
 
-test "getImage returns Image" {
-    var image = try Self.fromFile("example.ppm", std.testing.allocator);
-    defer image.free(std.testing.allocator);
-    try std.testing.expectEqual(image.header.width, 320);
-    try std.testing.expectEqual(image.header.height, 213);
-    try std.testing.expectEqual(image.header.image_format, .PPM);
+pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Self, ?Self, ?Self }) {
+    switch (self.header.image_format) {
+        .ASCII_PPM, .PPM => {
+            var histogram_red_data = [_]u32{0} ** 256;
+            var histogram_green_data = [_]u32{0} ** 256;
+            var histogram_blue_data = [_]u32{0} ** 256;
 
-    try image.toFile("test.ppm");
+            for (0..self.header.width) |x| {
+                for (0..self.header.height) |y| {
+                    const coords: Coordinates = .{ .x = x, .y = y };
+                    const pixel = self.getPixel(coords).color;
+                    histogram_red_data[pixel.r] += 1;
+                    histogram_green_data[pixel.g] += 1;
+                    histogram_blue_data[pixel.b] += 1;
+                }
+            }
+
+            const max_red_value: u32 = std.sort.max(u32, &histogram_red_data, {}, std.sort.asc(u32)).?;
+            const max_green_value: u32 = std.sort.max(u32, &histogram_green_data, {}, std.sort.asc(u32)).?;
+            const max_blue_value: u32 = std.sort.max(u32, &histogram_blue_data, {}, std.sort.asc(u32)).?;
+
+            const histogram_header: Header = .{
+                .image_format = .PPM,
+                .width = histogram_red_data.len,
+                .height = 300,
+                .max_color_value = 255,
+            };
+
+            var histogram_red_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_red_data, 0..) |data, i| {
+                const normalized_height: u32 = @intCast((data * histogram_red_image.header.height) / max_red_value);
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_red_image.header.height - 1 - h) };
+                    try histogram_red_image.setPixel(coords, .{ .color = .{
+                        .r = 255,
+                        .g = 0,
+                        .b = 0,
+                    } });
+                }
+            }
+
+            var histogram_green_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_green_data, 0..) |data, i| {
+                const normalized_height: u32 = @intCast((data * histogram_green_image.header.height) / max_green_value);
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_green_image.header.height - 1 - h) };
+                    try histogram_green_image.setPixel(coords, .{ .color = .{
+                        .r = 0,
+                        .g = 255,
+                        .b = 0,
+                    } });
+                }
+            }
+
+            var histogram_blue_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_blue_data, 0..) |data, i| {
+                const normalized_height: u32 = @intCast((data * histogram_blue_image.header.height) / max_blue_value);
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_blue_image.header.height - 1 - h) };
+                    try histogram_blue_image.setPixel(coords, .{ .color = .{
+                        .r = 0,
+                        .g = 0,
+                        .b = 255,
+                    } });
+                }
+            }
+
+            return .{ histogram_red_image, histogram_green_image, histogram_blue_image };
+        },
+        .ASCII_PGM, .PGM => {
+            var histogram_data = [_]u32{0} ** 256;
+
+            for (self.data) |byte| {
+                histogram_data[byte] += 1;
+            }
+
+            const max_value: u32 = std.sort.max(u32, &histogram_data, {}, std.sort.asc(u32)).?;
+
+            var histogram_image = try Self.empty(allocator, .{
+                .image_format = .PGM,
+                .width = histogram_data.len,
+                .height = 300,
+                .max_color_value = 255,
+            });
+
+            for (histogram_data, 0..) |data, i| {
+                const normalized_height: u32 = @intCast((data * histogram_image.header.height) / max_value);
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_image.header.height - 1 - h) };
+                    try histogram_image.setPixel(coords, .{ .black_and_white = 255 });
+                }
+            }
+
+            return .{ histogram_image, null, null };
+        },
+    }
 }
+
+pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Self, ?Self, ?Self }) {
+    switch (self.header.image_format) {
+        .ASCII_PPM, .PPM => {
+            var histogram_red_data = [_]u32{0} ** 256;
+            var histogram_green_data = [_]u32{0} ** 256;
+            var histogram_blue_data = [_]u32{0} ** 256;
+
+            for (0..self.header.width) |x| {
+                for (0..self.header.height) |y| {
+                    const coords: Coordinates = .{ .x = x, .y = y };
+                    const pixel = self.getPixel(coords).color;
+                    histogram_red_data[pixel.r] += 1;
+                    histogram_green_data[pixel.g] += 1;
+                    histogram_blue_data[pixel.b] += 1;
+                }
+            }
+
+            const max_red_value: u32 = std.sort.max(u32, &histogram_red_data, {}, std.sort.asc(u32)).?;
+            const max_green_value: u32 = std.sort.max(u32, &histogram_green_data, {}, std.sort.asc(u32)).?;
+            const max_blue_value: u32 = std.sort.max(u32, &histogram_blue_data, {}, std.sort.asc(u32)).?;
+
+            const histogram_header: Header = .{
+                .image_format = .PPM,
+                .width = histogram_red_data.len,
+                .height = 300,
+                .max_color_value = 255,
+            };
+
+            var histogram_red_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_red_data, 0..) |data, i| {
+                const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_red_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_red_value + 1))));
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_red_image.header.height - 1 - h) };
+                    try histogram_red_image.setPixel(coords, .{ .color = .{
+                        .r = 255,
+                        .g = 0,
+                        .b = 0,
+                    } });
+                }
+            }
+
+            var histogram_green_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_green_data, 0..) |data, i| {
+                const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_green_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_green_value + 1))));
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_green_image.header.height - 1 - h) };
+                    try histogram_green_image.setPixel(coords, .{ .color = .{
+                        .r = 0,
+                        .g = 255,
+                        .b = 0,
+                    } });
+                }
+            }
+
+            var histogram_blue_image = try Self.empty(allocator, histogram_header);
+
+            for (histogram_blue_data, 0..) |data, i| {
+                const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_blue_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_blue_value + 1))));
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_blue_image.header.height - 1 - h) };
+                    try histogram_blue_image.setPixel(coords, .{ .color = .{
+                        .r = 0,
+                        .g = 0,
+                        .b = 255,
+                    } });
+                }
+            }
+
+            return .{ histogram_red_image, histogram_green_image, histogram_blue_image };
+        },
+        .ASCII_PGM, .PGM => {
+            var histogram_data = [_]u32{0} ** 256;
+
+            for (self.data) |byte| {
+                histogram_data[byte] += 1;
+            }
+
+            const max_value: u32 = std.sort.max(u32, &histogram_data, {}, std.sort.asc(u32)).?;
+
+            var histogram_image = try Self.empty(allocator, .{
+                .image_format = .PGM,
+                .width = histogram_data.len,
+                .height = 300,
+                .max_color_value = 255,
+            });
+
+            for (histogram_data, 0..) |data, i| {
+                const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_value + 1))));
+                for (0..normalized_height) |h| {
+                    const coords: Coordinates = .{ .x = @intCast(i), .y = @intCast(histogram_image.header.height - 1 - h) };
+                    try histogram_image.setPixel(coords, .{ .black_and_white = 255 });
+                }
+            }
+
+            return .{ histogram_image, null, null };
+        },
+    }
+}
+
+// test "getImage returns Image" {
+//     var image = try Self.fromFile("image_bank/CircuitNoise.ppm", std.testing.allocator);
+//     defer image.free(std.testing.allocator);
+//     try std.testing.expectEqual(image.header.width, 320);
+//     try std.testing.expectEqual(image.header.height, 213);
+//     try std.testing.expectEqual(image.header.image_format, .PPM);
+//     try image.toFile("test.ppm", std.testing.allocator);
+// }
+
+test "histogram test pgm" {
+    var image = try Self.fromFile("image_bank/Secateur.pgm", std.heap.page_allocator);
+    defer image.free(std.heap.page_allocator);
+
+    var histogram_image, _, _ = try image.histogram(std.heap.page_allocator);
+    defer histogram_image.free(std.heap.page_allocator);
+
+    try histogram_image.toFile("test2.pgm", std.testing.allocator);
+}
+
+// test "histogram test ppm" {
+//     var image = try Self.fromFile("image_bank/LenaHeadBruit.ppm", std.testing.allocator);
+//     defer image.free(std.testing.allocator);
+
+//     var histogram_red_image: Self = undefined;
+//     var histogram_green_image: ?Self = undefined;
+//     var histogram_blue_image: ?Self = undefined;
+
+//     histogram_red_image, histogram_green_image, histogram_blue_image = try image.histogram(std.testing.allocator);
+//     defer histogram_red_image.free(std.testing.allocator);
+//     defer histogram_green_image.?.free(std.testing.allocator);
+//     defer histogram_blue_image.?.free(std.testing.allocator);
+
+//     try histogram_red_image.toFile("testred.pgm");
+//     try histogram_green_image.?.toFile("testgreen.pgm");
+//     try histogram_blue_image.?.toFile("testblue.pgm");
+// }
