@@ -1,70 +1,67 @@
 const Image = @import("Image.zig");
 
 const std = @import("std");
-const gtk = @import("gtk");
-const Application = gtk.Application;
-const ApplicationWindow = gtk.ApplicationWindow;
-const Box = gtk.Box;
-const Button = gtk.Button;
-const Widget = gtk.Widget;
-const Window = gtk.Window;
-const gio = gtk.gio;
-const GApplication = gio.Application;
+const rl = @import("raylib");
+const rg = @import("raygui");
 
-pub fn printHello() void {
-    std.log.info("Hello World", .{});
+/// `rl.getColor` only accepts a `u32`. Performing `@intCast` on the return value
+/// of `rg.getStyle` invokes checked undefined behavior from Zig when passed to
+/// `rl.getColor`, hence the custom implementation here...
+fn getColor(hex: i32) rl.Color {
+    var color: rl.Color = .black;
+    // zig fmt: off
+    color.r = @intCast((hex >> 24) & 0xFF);
+    color.g = @intCast((hex >> 16) & 0xFF);
+    color.b = @intCast((hex >>  8) & 0xFF);
+    color.a = @intCast((hex >>  0) & 0xFF);
+    // zig fmt: on
+    return color;
 }
 
-pub fn activate(app: *GApplication) void {
-    var window = ApplicationWindow.new(app.tryInto(Application).?).into(Window);
-    window.setTitle("Window");
-    window.setDefaultSize(200, 200);
-    var box = Box.new(.vertical, 0);
-    var box_as_widget = box.into(Widget);
-    box_as_widget.setHalign(.center);
-    box_as_widget.setValign(.center);
-    window.setChild(box_as_widget);
+pub fn main() !void {
+    // rl.initWindow(800, 800, "raygui - controls test suite");
+    // defer rl.closeWindow();
 
-    var image = Image.fromFile("image_bank/LenaHead.pgm", std.heap.page_allocator) catch {
-        std.debug.print("Error reading image", .{});
-        return;
-    };
+    // rl.setTargetFPS(60);
+
+    // var show_message_box = false;
+
+    // const color_int = rg.getStyle(.default, .{ .default = .background_color });
+
+    var image = try Image.fromFile("image_bank/CircuitNoise.ppm", std.heap.page_allocator);
     defer image.free(std.heap.page_allocator);
 
-    var histogram_image: Image, _, _ = image.histogram(std.heap.page_allocator) catch {
-        std.debug.print("Error reading histogram", .{});
-        return;
-    };
-    defer histogram_image.free(std.heap.page_allocator);
+    try image.showWithRaylib(std.heap.page_allocator);
 
-    var er: ?*gtk.core.Error = null;
-    const im_bytes = histogram_image.toBytes(std.heap.page_allocator) catch {
-        return;
-    };
-    defer std.heap.page_allocator.free(im_bytes);
+    // const image_bytes = try image.toBytes(std.heap.page_allocator);
+    // defer std.heap.page_allocator.free(image_bytes);
 
-    const bytes = gtk.glib.Bytes.newTake(im_bytes);
-    defer gtk.glib.free(bytes);
+    // const r_image = try rl.loadImageFromMemory(".ppm", image_bytes);
+    // defer rl.unloadImage(r_image);
 
-    const texture = gtk.gdk.Texture.newFromBytes(bytes, &er) catch {
-        return;
-    };
-    // defer gtk.;
+    // const texture = try rl.loadTextureFromImage(r_image);
+    // defer rl.unloadTexture(texture);
 
-    const paintable = texture.into(gtk.gdk.Paintable);
-    var img = gtk.Picture.newForPaintable(@constCast(paintable));
-    box.append(img.into(Widget));
+    // while (!rl.windowShouldClose()) {
+    //     rl.beginDrawing();
+    //     defer rl.endDrawing();
 
-    var button = Button.newWithLabel("Hello, World");
-    _ = button.connectClicked(printHello, .{}, .{});
-    _ = button.connectClicked(Window.destroy, .{window}, .{ .swapped = true });
-    box.append(button.into(Widget));
-    window.present();
-}
+    //     rl.clearBackground(getColor(color_int));
 
-pub fn main() u8 {
-    var app = Application.new("org.gtk.example", .{}).into(GApplication);
-    defer app.__call("unref", .{});
-    _ = app.connectActivate(activate, .{}, .{});
-    return @intCast(app.run(@ptrCast(std.os.argv)));
+    //     // if (rg.button(.init(24, 24, 120, 30), "#191#Show Message"))
+    //     //     show_message_box = true;
+
+    //     // if (show_message_box) {
+    //     //     const result = rg.messageBox(
+    //     //         .init(85, 70, 250, 100),
+    //     //         "#191#Message Box",
+    //     //         "Hi! This is a message",
+    //     //         "Nice;Cool",
+    //     //     );
+
+    //     //     if (result >= 0) show_message_box = false;
+    //     // }
+
+    //     rl.drawTexture(texture, 0, 0, rl.Color.white);
+    // }
 }

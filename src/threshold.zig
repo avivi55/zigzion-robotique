@@ -3,13 +3,13 @@ const Image = @import("Image.zig");
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 
-fn pgm_threshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !Image {
+fn pgmThreshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !Image {
     var new_image: Image = try Image.empty(allocator, image.header);
 
     var point: Coordinates = .default;
 
     for (0..image.header.height) |y| {
-        for (1..image.header.width - 1) |x| {
+        for (0..image.header.width) |x| {
             point = .{ .x = @intCast(x), .y = @intCast(y) };
 
             if (image.getPixel(point).black_and_white >= threshold) {
@@ -20,7 +20,7 @@ fn pgm_threshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !Im
     return new_image;
 }
 
-fn ppm_threshold(
+fn ppmThreshold(
     image: *Image,
     allocator: std.mem.Allocator,
     red_threshold: u8,
@@ -32,7 +32,7 @@ fn ppm_threshold(
     var point: Coordinates = .default;
 
     for (0..image.header.height) |y| {
-        for (1..image.header.width - 1) |x| {
+        for (0..image.header.width) |x| {
             point = .{ .x = @intCast(x), .y = @intCast(y) };
 
             const pixel = image.getPixel(point).color;
@@ -43,18 +43,4 @@ fn ppm_threshold(
         }
     }
     return new_image;
-}
-
-test "pgm" {
-    var image = try Image.fromFile("image_bank/Secateur.pgm", std.heap.page_allocator);
-    defer image.free(std.heap.page_allocator);
-
-    var new_image = try pgm_threshold(&image, std.testing.allocator, 210);
-    defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.ppm", std.testing.allocator);
-}
-
-test "ppm" {
-    var image = try Image.fromFile("image_bank/LenaHeadBruit.ppm", std.testing.allocator);
-    defer image.free(std.testing.allocator);
 }

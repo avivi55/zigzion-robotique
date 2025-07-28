@@ -6,9 +6,6 @@ const LinearFilter = @import("LinearFilter.zig");
 
 fn meanFilter(image: *Image, point: Coordinates) Pixel {
     var mean: u32 = 0;
-    var red_mean: u32 = 0;
-    var green_mean: u32 = 0;
-    var blue_mean: u32 = 0;
 
     var neighbor_point: Coordinates = .default;
 
@@ -19,35 +16,14 @@ fn meanFilter(image: *Image, point: Coordinates) Pixel {
                 .y = @truncate(point.y + j - 1),
             };
             const pixel = image.getPixel(neighbor_point);
-            switch (image.header.image_format) {
-                .ASCII_PGM, .PGM => {
-                    mean += pixel.black_and_white;
-                },
-                .ASCII_PPM, .PPM => {
-                    red_mean += pixel.color.r;
-                    green_mean += pixel.color.g;
-                    blue_mean += pixel.color.b;
-                },
-            }
+            mean += pixel.black_and_white;
         }
     }
 
     const neighbor_count = 9;
+    mean /= neighbor_count;
 
-    switch (image.header.image_format) {
-        .ASCII_PGM, .PGM => {
-            mean /= neighbor_count;
-
-            return .{ .black_and_white = @intCast(mean) };
-        },
-        .ASCII_PPM, .PPM => {
-            red_mean /= neighbor_count;
-            green_mean /= neighbor_count;
-            blue_mean /= neighbor_count;
-
-            return .{ .color = .{ .r = @intCast(red_mean), .g = @intCast(green_mean), .b = @intCast(blue_mean) } };
-        },
-    }
+    return .{ .black_and_white = @intCast(mean) };
 }
 
 pub fn meanFiltering(image: *Image, allocator: std.mem.Allocator) !Image {
@@ -60,5 +36,5 @@ test "mean filtering" {
 
     var new_image = try meanFiltering(&image, std.testing.allocator);
     defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.ppm");
+    try new_image.toFile("test.ppm", std.testing.allocator);
 }

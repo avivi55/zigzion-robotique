@@ -36,9 +36,9 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
-        .gtk4 = .{
-            .url = "https://github.com/DerryAlex/zig-gir-ffi/releases/download/0.11.0/gtk4.tar.gz",
-            .hash = "gtk-0.11.0-AAAAAID2XACzS_hWXkeY_kQaQDJ8FlB14U-v1cEtxVFE",
+        .raylib_zig = .{
+            .url = "git+https://github.com/Not-Nik/raylib-zig?ref=devel#e8167c2e560402510220fdf419afbc7c2fc51e5d",
+            .hash = "raylib_zig-5.6.0-dev-KE8REIouBQDbt-DSHmhUc9YFjJ_pFUS5tvRDPnBzsMdU",
         },
     },
     .paths = .{

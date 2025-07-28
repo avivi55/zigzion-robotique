@@ -1,13 +1,17 @@
 const std = @import("std");
-const Self = @This();
+const Image = @This();
+const rl = @import("raylib");
 
-const ImageFormat = enum(u32) { ASCII_PPM = 3, PPM = 6, ASCII_PGM = 2, PGM = 5 };
+const ImageFormat = enum(u3) { ASCII_PPM = 3, PPM = 6, ASCII_PGM = 2, PGM = 5 };
 
+/// For our `max_color_value`,
+/// the max should be 16bytes(per the specs of PNM format)
+/// but we will consider 255 as the max.
 pub const Header = struct {
     image_format: ImageFormat,
     width: u32,
     height: u32,
-    max_color_value: u16, // max is 65536
+    max_color_value: u8,
 
     pub const default = Header{
         .image_format = .PPM,
@@ -15,6 +19,25 @@ pub const Header = struct {
         .height = 0,
         .max_color_value = 255,
     };
+};
+
+pub const Coordinates = struct {
+    x: usize,
+    y: usize,
+
+    pub const default = Coordinates{
+        .x = 0,
+        .y = 0,
+    };
+};
+
+pub const Pixel = union(enum) {
+    black_and_white: u8,
+    color: struct {
+        r: u8,
+        g: u8,
+        b: u8,
+    },
 };
 
 header: Header,
@@ -46,9 +69,9 @@ fn readHeader(file: std.fs.File, allocator: std.mem.Allocator) !Header {
     }
 
     switch (first_line[1]) {
-        '3' => image_format = .ASCII_PPM,
+        '3' => return error.ASCIIFormatNotSupported, //image_format = .ASCII_PPM,
         '6' => image_format = .PPM,
-        '2' => image_format = .ASCII_PGM,
+        '2' => return error.ASCIIFormatNotSupported, //image_format = .ASCII_PGM,
         '5' => image_format = .PGM,
         else => return error.InvalidImageFormat,
     }
@@ -83,7 +106,7 @@ fn readHeader(file: std.fs.File, allocator: std.mem.Allocator) !Header {
     const max_color_line = try line.toOwnedSlice();
     defer allocator.free(max_color_line);
 
-    const max_color_value = try std.fmt.parseInt(u16, max_color_line, 10);
+    const max_color_value = try std.fmt.parseInt(@FieldType(Header, "max_color_value"), max_color_line, 10);
 
     return .{
         .image_format = image_format,
@@ -93,13 +116,13 @@ fn readHeader(file: std.fs.File, allocator: std.mem.Allocator) !Header {
     };
 }
 
-pub fn free(self: *Self, allocator: std.mem.Allocator) void {
+pub fn free(self: *Image, allocator: std.mem.Allocator) void {
     if (self.data.len > 0) {
         allocator.free(self.data);
     }
 }
 
-pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Self {
+pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Image {
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
 
@@ -110,13 +133,13 @@ pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Self {
 
     try file.reader().readAllArrayList(&line, std.math.maxInt(usize));
 
-    return Self{
+    return Image{
         .header = header,
         .data = try line.toOwnedSlice(),
     };
 }
 
-pub fn toBytes(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+pub fn toBytes(self: *Image, allocator: std.mem.Allocator) ![]u8 {
     var array = std.ArrayList(u8).init(allocator);
     defer array.deinit();
 
@@ -132,7 +155,7 @@ pub fn toBytes(self: *Self, allocator: std.mem.Allocator) ![]u8 {
     return array.toOwnedSlice();
 }
 
-pub fn toFile(self: *Self, path: []const u8, allocator: std.mem.Allocator) !void {
+pub fn toFile(self: *Image, path: []const u8, allocator: std.mem.Allocator) !void {
     const file = try std.fs.cwd().createFile(path, .{});
     defer file.close();
 
@@ -142,7 +165,7 @@ pub fn toFile(self: *Self, path: []const u8, allocator: std.mem.Allocator) !void
     try file.writer().writeAll(bytes);
 }
 
-pub fn empty(allocator: std.mem.Allocator, header: Header) !Self {
+pub fn empty(allocator: std.mem.Allocator, header: Header) !Image {
     const data_size = switch (header.image_format) {
         .ASCII_PPM, .PPM => 3 * header.width * header.height,
         .ASCII_PGM, .PGM => header.width * header.height,
@@ -153,32 +176,63 @@ pub fn empty(allocator: std.mem.Allocator, header: Header) !Self {
         data[i] = 0;
     }
 
-    return Self{
+    return Image{
         .header = header,
         .data = data,
     };
 }
 
-pub const Coordinates = struct {
-    x: usize,
-    y: usize,
+pub fn splitChannels(self: *Image, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Image, Image, Image }) {
+    if (self.header.image_format != .PPM) return error.CannotSplitSingleChannel;
 
-    pub const default = Coordinates{
-        .x = 0,
-        .y = 0,
-    };
-};
+    var new_header = self.header;
+    new_header.image_format = .PGM;
 
-pub const Pixel = union(enum) {
-    black_and_white: u8,
-    color: struct {
-        r: u8,
-        g: u8,
-        b: u8,
-    },
-};
+    var red_channel = try Image.empty(allocator, new_header);
+    var green_channel = try Image.empty(allocator, new_header);
+    var blue_channel = try Image.empty(allocator, new_header);
 
-pub fn getPixel(self: *Self, coords: Coordinates) Pixel {
+    for (self.data, 0..) |byte, i| {
+        if (i % 3 == 0) {
+            red_channel.data[i / 3] = byte; // R channel
+        } else if (i % 3 == 1) {
+            green_channel.data[i / 3] = byte; // G channel
+        } else {
+            blue_channel.data[i / 3] = byte; // B channel (i % 3 == 2)
+        }
+    }
+
+    return .{ red_channel, green_channel, blue_channel };
+}
+
+pub fn mergeChannels(red_channel: Image, green_channel: Image, blue_channel: Image, allocator: std.mem.Allocator) !Image {
+    if (red_channel.header.image_format != .PGM) return error.CannotMergeMultipleChannels;
+    if (green_channel.header.image_format != .PGM) return error.CannotMergeMultipleChannels;
+    if (blue_channel.header.image_format != .PGM) return error.CannotMergeMultipleChannels;
+
+    if (red_channel.header.width != green_channel.header.width or red_channel.header.width != blue_channel.header.width or green_channel.header.width != blue_channel.header.width) {
+        return error.ImageWidthDoNotMatch;
+    }
+
+    if (red_channel.header.height != green_channel.header.height or red_channel.header.height != blue_channel.header.height or green_channel.header.height != blue_channel.header.height) {
+        return error.ImageHeightDoNotMatch;
+    }
+
+    var new_header = red_channel.header;
+    new_header.image_format = .PPM;
+
+    var merged_image = try Image.empty(allocator, new_header);
+
+    for (0..red_channel.data.len) |i| {
+        merged_image.data[i * 3] = red_channel.data[i];
+        merged_image.data[1 + i * 3] = green_channel.data[i];
+        merged_image.data[2 + i * 3] = blue_channel.data[i];
+    }
+
+    return merged_image;
+}
+
+pub fn getPixel(self: *Image, coords: Coordinates) Pixel {
     switch (self.header.image_format) {
         .ASCII_PPM, .PPM => {
             const red_data_address = 3 * (coords.x + self.header.width * coords.y);
@@ -195,7 +249,7 @@ pub fn getPixel(self: *Self, coords: Coordinates) Pixel {
     }
 }
 
-pub fn setPixel(self: *Self, coords: Coordinates, pixel: Pixel) !void {
+pub fn setPixel(self: *Image, coords: Coordinates, pixel: Pixel) !void {
     if (coords.x >= self.header.width or coords.y >= self.header.height) {
         std.log.err("Coordinates out of bounds: ({}, {})", .{ coords.x, coords.y });
         return error.OutOfBounds;
@@ -217,7 +271,7 @@ pub fn setPixel(self: *Self, coords: Coordinates, pixel: Pixel) !void {
     }
 }
 
-pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Self, ?Self, ?Self }) {
+pub fn histogram(self: *Image, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Image, ?Image, ?Image }) {
     switch (self.header.image_format) {
         .ASCII_PPM, .PPM => {
             var histogram_red_data = [_]u32{0} ** 256;
@@ -245,7 +299,7 @@ pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ 
                 .max_color_value = 255,
             };
 
-            var histogram_red_image = try Self.empty(allocator, histogram_header);
+            var histogram_red_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_red_data, 0..) |data, i| {
                 const normalized_height: u32 = @intCast((data * histogram_red_image.header.height) / max_red_value);
@@ -259,7 +313,7 @@ pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ 
                 }
             }
 
-            var histogram_green_image = try Self.empty(allocator, histogram_header);
+            var histogram_green_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_green_data, 0..) |data, i| {
                 const normalized_height: u32 = @intCast((data * histogram_green_image.header.height) / max_green_value);
@@ -273,7 +327,7 @@ pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ 
                 }
             }
 
-            var histogram_blue_image = try Self.empty(allocator, histogram_header);
+            var histogram_blue_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_blue_data, 0..) |data, i| {
                 const normalized_height: u32 = @intCast((data * histogram_blue_image.header.height) / max_blue_value);
@@ -298,7 +352,7 @@ pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ 
 
             const max_value: u32 = std.sort.max(u32, &histogram_data, {}, std.sort.asc(u32)).?;
 
-            var histogram_image = try Self.empty(allocator, .{
+            var histogram_image = try Image.empty(allocator, .{
                 .image_format = .PGM,
                 .width = histogram_data.len,
                 .height = 300,
@@ -318,7 +372,7 @@ pub fn histogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ 
     }
 }
 
-pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Self, ?Self, ?Self }) {
+pub fn logHistogram(self: *Image, allocator: std.mem.Allocator) !std.meta.Tuple(&.{ Image, ?Image, ?Image }) {
     switch (self.header.image_format) {
         .ASCII_PPM, .PPM => {
             var histogram_red_data = [_]u32{0} ** 256;
@@ -346,7 +400,7 @@ pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&
                 .max_color_value = 255,
             };
 
-            var histogram_red_image = try Self.empty(allocator, histogram_header);
+            var histogram_red_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_red_data, 0..) |data, i| {
                 const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_red_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_red_value + 1))));
@@ -360,7 +414,7 @@ pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&
                 }
             }
 
-            var histogram_green_image = try Self.empty(allocator, histogram_header);
+            var histogram_green_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_green_data, 0..) |data, i| {
                 const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_green_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_green_value + 1))));
@@ -374,7 +428,7 @@ pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&
                 }
             }
 
-            var histogram_blue_image = try Self.empty(allocator, histogram_header);
+            var histogram_blue_image = try Image.empty(allocator, histogram_header);
 
             for (histogram_blue_data, 0..) |data, i| {
                 const normalized_height: u32 = @intFromFloat((std.math.log10(@as(f64, @floatFromInt(1 + data))) * @as(f64, @floatFromInt(histogram_blue_image.header.height))) / std.math.log10(@as(f64, @floatFromInt(max_blue_value + 1))));
@@ -399,7 +453,7 @@ pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&
 
             const max_value: u32 = std.sort.max(u32, &histogram_data, {}, std.sort.asc(u32)).?;
 
-            var histogram_image = try Self.empty(allocator, .{
+            var histogram_image = try Image.empty(allocator, .{
                 .image_format = .PGM,
                 .width = histogram_data.len,
                 .height = 300,
@@ -419,39 +473,54 @@ pub fn logHistogram(self: *Self, allocator: std.mem.Allocator) !std.meta.Tuple(&
     }
 }
 
-// test "getImage returns Image" {
-//     var image = try Self.fromFile("image_bank/CircuitNoise.ppm", std.testing.allocator);
-//     defer image.free(std.testing.allocator);
-//     try std.testing.expectEqual(image.header.width, 320);
-//     try std.testing.expectEqual(image.header.height, 213);
-//     try std.testing.expectEqual(image.header.image_format, .PPM);
-//     try image.toFile("test.ppm", std.testing.allocator);
-// }
+pub fn showWithRaylib(self: *Image, allocator: std.mem.Allocator) !void {
+    rl.setConfigFlags(.{ .window_resizable = true });
+    rl.initWindow(@intCast(self.header.width), @intCast(self.header.height), "Image viewer");
 
-test "histogram test pgm" {
-    var image = try Self.fromFile("image_bank/Secateur.pgm", std.heap.page_allocator);
-    defer image.free(std.heap.page_allocator);
+    defer rl.closeWindow();
+    rl.setTargetFPS(60);
 
-    var histogram_image, _, _ = try image.histogram(std.heap.page_allocator);
-    defer histogram_image.free(std.heap.page_allocator);
+    const image_bytes = try self.toBytes(allocator);
+    defer allocator.free(image_bytes);
 
-    try histogram_image.toFile("test2.pgm", std.testing.allocator);
+    const r_image = switch (self.header.image_format) {
+        .ASCII_PGM, .PGM => try rl.loadImageFromMemory(".pgm", image_bytes),
+        .ASCII_PPM, .PPM => try rl.loadImageFromMemory(".ppm", image_bytes),
+    };
+    defer rl.unloadImage(r_image);
+
+    const texture = try rl.loadTextureFromImage(r_image);
+    defer rl.unloadTexture(texture);
+
+    const temp_image = try rl.loadImageFromTexture(texture);
+    defer rl.unloadImage(temp_image);
+
+    var width = rl.getScreenWidth();
+    var height = rl.getScreenHeight();
+    var old_width = width;
+    var old_height = height;
+
+    while (!rl.windowShouldClose()) {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        width = rl.getScreenWidth();
+        height = rl.getScreenHeight();
+
+        rl.clearBackground(rl.Color.white);
+
+        // if (old_height != height or old_width != width) {
+        //     // rl.imageResizeNN(&temp_image, width, height);
+        //     texture = try rl.loadTextureFromImage(temp_image);
+        //     rl.setTextureFilter(texture, rl.TextureFilter.anisotropic_8x);
+
+        // }
+
+        const origin: rl.Vector2 = .{ .x = 0, .y = 0 };
+        rl.drawTextureEx(texture, origin, 0.0, 1.5, rl.Color.white);
+        // rl.drawTexture(texture, 0, 0, rl.Color.white);
+
+        old_width = width;
+        old_height = height;
+    }
 }
-
-// test "histogram test ppm" {
-//     var image = try Self.fromFile("image_bank/LenaHeadBruit.ppm", std.testing.allocator);
-//     defer image.free(std.testing.allocator);
-
-//     var histogram_red_image: Self = undefined;
-//     var histogram_green_image: ?Self = undefined;
-//     var histogram_blue_image: ?Self = undefined;
-
-//     histogram_red_image, histogram_green_image, histogram_blue_image = try image.histogram(std.testing.allocator);
-//     defer histogram_red_image.free(std.testing.allocator);
-//     defer histogram_green_image.?.free(std.testing.allocator);
-//     defer histogram_blue_image.?.free(std.testing.allocator);
-
-//     try histogram_red_image.toFile("testred.pgm");
-//     try histogram_green_image.?.toFile("testgreen.pgm");
-//     try histogram_blue_image.?.toFile("testblue.pgm");
-// }
