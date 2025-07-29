@@ -232,6 +232,28 @@ pub fn mergeChannels(red_channel: Image, green_channel: Image, blue_channel: Ima
     return merged_image;
 }
 
+pub fn applyToEachChannel(self: *Image, comptime applyFn: fn (*Image, std.mem.Allocator) Image, allocator: std.mem.Allocator) !Image {
+    if (self.header.image_format != .PPM) return error.CannotSplitSingleChannel;
+
+    var red_self: Image = undefined;
+    var green_self: Image = undefined;
+    var blue_self: Image = undefined;
+
+    red_self, green_self, blue_self = try self.splitChannels(allocator);
+    defer red_self.free(allocator);
+    defer green_self.free(allocator);
+    defer blue_self.free(allocator);
+
+    var red_modified = applyFn(&red_self, allocator);
+    var green_modified = applyFn(&green_self, allocator);
+    var blue_modified = applyFn(&blue_self, allocator);
+    defer red_modified.free(allocator);
+    defer green_modified.free(allocator);
+    defer blue_modified.free(allocator);
+
+    return try mergeChannels(red_modified, green_modified, blue_modified, allocator);
+}
+
 pub fn getPixel(self: *Image, coords: Coordinates) Pixel {
     switch (self.header.image_format) {
         .ASCII_PPM, .PPM => {
@@ -489,7 +511,7 @@ pub fn showWithRaylib(self: *Image, allocator: std.mem.Allocator) !void {
     };
     defer rl.unloadImage(r_image);
 
-    const texture = try rl.loadTextureFromImage(r_image);
+    var texture = try rl.loadTextureFromImage(r_image);
     defer rl.unloadTexture(texture);
 
     const temp_image = try rl.loadImageFromTexture(texture);
@@ -499,6 +521,10 @@ pub fn showWithRaylib(self: *Image, allocator: std.mem.Allocator) !void {
     var height = rl.getScreenHeight();
     var old_width = width;
     var old_height = height;
+    const origin: rl.Vector2 = .{ .x = 0, .y = 0 };
+    var wscale: f32 = 1;
+    var hscale: f32 = 1;
+    var scale: f32 = 1;
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
@@ -509,16 +535,15 @@ pub fn showWithRaylib(self: *Image, allocator: std.mem.Allocator) !void {
 
         rl.clearBackground(rl.Color.white);
 
-        // if (old_height != height or old_width != width) {
-        //     // rl.imageResizeNN(&temp_image, width, height);
-        //     texture = try rl.loadTextureFromImage(temp_image);
-        //     rl.setTextureFilter(texture, rl.TextureFilter.anisotropic_8x);
+        if (old_height != height or old_width != width) {
+            wscale = @as(f32, @floatFromInt(width)) / @as(f32, @floatFromInt(self.header.width));
+            hscale = @as(f32, @floatFromInt(height)) / @as(f32, @floatFromInt(self.header.height));
+            scale = @min(wscale, hscale);
 
-        // }
+            texture = try rl.loadTextureFromImage(temp_image);
+        }
 
-        const origin: rl.Vector2 = .{ .x = 0, .y = 0 };
-        rl.drawTextureEx(texture, origin, 0.0, 1.5, rl.Color.white);
-        // rl.drawTexture(texture, 0, 0, rl.Color.white);
+        rl.drawTextureEx(texture, origin, 0.0, scale, rl.Color.white);
 
         old_width = width;
         old_height = height;

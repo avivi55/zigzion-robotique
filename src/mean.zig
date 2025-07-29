@@ -31,7 +31,7 @@ pub fn meanFiltering(image: *Image, allocator: std.mem.Allocator) !Image {
 }
 
 test "mean filtering" {
-    var image = try Image.fromFile("image_bank/CircuitImprime.ppm", std.testing.allocator);
+    var image = try Image.fromFile("image_bank/CircuitNoise.ppm", std.testing.allocator);
     defer image.free(std.testing.allocator);
 
     var new_image = try meanFiltering(&image, std.testing.allocator);

@@ -47,8 +47,9 @@ fn pgmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: []
                     break;
                 }
 
+                // we consider that all the threshold failed
                 if (i == thresholds.len - 1) {
-                    value = 255;
+                    value = image.header.max_color_value;
                     break;
                 }
             }
