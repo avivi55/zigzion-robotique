@@ -15,6 +15,7 @@ const kirsh = @import("kirsh.zig");
 const gaussian = @import("gaussian.zig");
 const mean = @import("mean.zig");
 const median = @import("median.zig");
+const laplace = @import("laplace.zig");
 
 /// `rl.getColor` only accepts a `u32`. Performing `@intCast` on the return value
 /// of `rg.getStyle` invokes checked undefined behavior from Zig when passed to
@@ -230,7 +231,12 @@ pub fn main() !void {
             switch (contour_active) {
                 @intFromEnum(contours_sel.KIRSH) => {
                     const modified_image = try kirsh.kirsh(selected_image, allocator);
-                    const image_box = try ImageBox.init(modified_image, .{ .x = 400, .y = 300 }, "Médian", allocator);
+                    const image_box = try ImageBox.init(modified_image, .{ .x = 400, .y = 300 }, "Kirsh", allocator);
+                    try image_boxes.append(image_box);
+                },
+                @intFromEnum(contours_sel.LAPLACE) => {
+                    const modified_image = try laplace.laplaceFiltering(selected_image, allocator);
+                    const image_box = try ImageBox.init(modified_image, .{ .x = 400, .y = 300 }, "Laplace", allocator);
                     try image_boxes.append(image_box);
                 },
                 else => {},

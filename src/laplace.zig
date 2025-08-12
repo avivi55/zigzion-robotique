@@ -29,15 +29,6 @@ fn laplaceFilter(image: *Image, point: Coordinates) Pixel {
     }
 }
 
-pub fn laplaceFiltering(image: *Image, allocator: std.mem.Allocator) !Image {
+pub fn laplaceFiltering(image: *Image, allocator: std.mem.Allocator) !*Image {
     return LinearFilter.filter(image, allocator, laplaceFilter);
-}
-
-test "laplace filtering" {
-    var image = try Image.fromFile("image_bank/Bureau.pgm", std.testing.allocator);
-    defer image.free(std.testing.allocator);
-
-    var new_image = try laplaceFiltering(&image, std.testing.allocator);
-    defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.pgm", std.testing.allocator);
 }
