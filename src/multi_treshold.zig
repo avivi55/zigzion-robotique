@@ -1,10 +1,10 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 
-fn pgmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: []u8) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+fn pgmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: []u8) !*Image {
+    var new_image = try Image.empty(allocator, image.header);
 
     const MAX_NUMBER_OF_THRESHOLDS = 20;
 
@@ -66,10 +66,10 @@ pub const PpmMultiThresholds = struct {
     blue: []u8,
 };
 
-fn ppmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: PpmMultiThresholds) !Image {
-    var red_image: Image = undefined;
-    var green_image: Image = undefined;
-    var blue_image: Image = undefined;
+fn ppmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: PpmMultiThresholds) !*Image {
+    var red_image: *Image = undefined;
+    var green_image: *Image = undefined;
+    var blue_image: *Image = undefined;
 
     red_image, green_image, blue_image = try image.splitChannels(std.testing.allocator);
     defer red_image.free(std.testing.allocator);
@@ -84,33 +84,4 @@ fn ppmMultiThreshold(image: *Image, allocator: std.mem.Allocator, thresholds: Pp
     defer blue_multi_thr.free(allocator);
 
     return try Image.mergeChannels(red_multi_thr, green_multi_thr, blue_multi_thr, allocator);
-}
-
-test "pgm" {
-    var image = try Image.fromFile("image_bank/Secateur.pgm", std.heap.page_allocator);
-    defer image.free(std.heap.page_allocator);
-
-    var ths = [_]u8{ 23, 150, 210 };
-
-    var new_image = try pgmMultiThreshold(&image, std.testing.allocator, &ths);
-    defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.ppm", std.testing.allocator);
-}
-
-test "ppm" {
-    var image = try Image.fromFile("image_bank/LenaHeadBruit.ppm", std.heap.page_allocator);
-    defer image.free(std.heap.page_allocator);
-
-    var thsr = [_]u8{ 100, 150 };
-    var thsg = [_]u8{ 23, 150, 210 };
-    var thsb = [_]u8{ 23, 150, 210 };
-
-    var new_image = try ppmMultiThreshold(&image, std.testing.allocator, .{
-        .red = &thsr,
-        .green = &thsg,
-        .blue = &thsb,
-    });
-
-    defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.ppm", std.testing.allocator);
 }

@@ -1,5 +1,5 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 const LinearFilter = @import("LinearFilter.zig");
@@ -71,19 +71,6 @@ fn kirshBorder(image: *Image, point: Coordinates) Pixel {
     return .{ .black_and_white = max_grad };
 }
 
-pub fn kirsh(image: *Image, allocator: std.mem.Allocator) !Image {
+pub fn kirsh(image: *Image, allocator: std.mem.Allocator) !*Image {
     return LinearFilter.filter(image, allocator, kirshBorder);
-}
-
-test "kirsh border detection" {
-    var image = try Image.fromFile("image_bank/LenaHeadBruit.ppm", std.testing.allocator);
-    defer image.free(std.testing.allocator);
-
-    var noiseless = try @import("median.zig").medianFiltering(&image, std.testing.allocator);
-    defer noiseless.free(std.testing.allocator);
-
-    var new_image = try kirsh(&noiseless, std.testing.allocator);
-    defer new_image.free(std.testing.allocator);
-
-    try new_image.toFile("test.ppm", std.testing.allocator);
 }

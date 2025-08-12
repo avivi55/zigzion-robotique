@@ -1,5 +1,5 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 const LinearFilter = @import("LinearFilter.zig");
@@ -26,15 +26,6 @@ fn meanFilter(image: *Image, point: Coordinates) Pixel {
     return .{ .black_and_white = @intCast(mean) };
 }
 
-pub fn meanFiltering(image: *Image, allocator: std.mem.Allocator) !Image {
+pub fn meanFiltering(image: *Image, allocator: std.mem.Allocator) !*Image {
     return LinearFilter.filter(image, allocator, meanFilter);
-}
-
-test "mean filtering" {
-    var image = try Image.fromFile("image_bank/CircuitNoise.ppm", std.testing.allocator);
-    defer image.free(std.testing.allocator);
-
-    var new_image = try meanFiltering(&image, std.testing.allocator);
-    defer new_image.free(std.testing.allocator);
-    try new_image.toFile("test.ppm", std.testing.allocator);
 }

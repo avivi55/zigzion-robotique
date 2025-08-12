@@ -1,5 +1,5 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 const LinearFilter = @import("LinearFilter.zig");
@@ -33,7 +33,7 @@ fn medianFilter(image: *Image, point: Coordinates) Pixel {
     return .{ .black_and_white = median[half_index] };
 }
 
-pub fn medianFiltering(image: *Image, allocator: std.mem.Allocator) !Image {
+pub fn medianFiltering(image: *Image, allocator: std.mem.Allocator) !*Image {
     return LinearFilter.filter(image, allocator, medianFilter);
 }
 

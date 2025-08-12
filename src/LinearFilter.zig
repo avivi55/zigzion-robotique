@@ -3,12 +3,12 @@
 //! we just have to apply the filter to each channel and "remerge" them together.
 
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 
-pub fn singleFilter(image: *Image, allocator: std.mem.Allocator, comptime filterFn: fn (img: *Image, pnt: Coordinates) Pixel) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+pub fn singleFilter(image: *Image, allocator: std.mem.Allocator, comptime filterFn: fn (img: *Image, pnt: Coordinates) Pixel) !*Image {
+    var new_image= try Image.empty(allocator, image.header);
 
     var point: Coordinates = .default;
 
@@ -39,18 +39,17 @@ pub fn singleFilter(image: *Image, allocator: std.mem.Allocator, comptime filter
     return new_image;
 }
 
-pub fn filter(image: *Image, allocator: std.mem.Allocator, comptime filterFn: fn (img: *Image, pnt: Coordinates) Pixel) !Image {
+pub fn filter(image: *Image, allocator: std.mem.Allocator, comptime filterFn: fn (img: *Image, pnt: Coordinates) Pixel) !*Image {
     switch (image.header.image_format) {
         .ASCII_PGM, .PGM => {
             return singleFilter(image, allocator, filterFn);
         },
         .ASCII_PPM, .PPM => {
-
             const gen = struct {
-                pub fn inner_filter(i: *Image, a: std.mem.Allocator) Image {
+                pub fn inner_filter(i: *Image, a: std.mem.Allocator) *Image {
                     return singleFilter(i, a, filterFn) catch {
                         std.log.warn("Error while applying the filter", .{});
-                        return i.*;
+                        return i;
                     };
                 }
             };

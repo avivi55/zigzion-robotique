@@ -14,6 +14,13 @@ pub fn build(b: *std.Build) void {
     const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
     raylib_artifact.root_module.addCMacro("SUPPORT_FILEFORMAT_PNM", "");
 
+    const nfd = b.dependency("nfd", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const nfd_mod = nfd.module("nfd");
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -29,6 +36,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("raygui", raygui);
     exe.root_module.addImport("raygui", raygui);
     exe.linkLibrary(raylib_artifact);
+    exe.root_module.addImport("nfd", nfd_mod);
+
 
     b.installArtifact(exe);
 

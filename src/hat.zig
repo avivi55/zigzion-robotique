@@ -1,11 +1,11 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 const And = @import("and.zig");
 
-fn pgmHat(image: Image, allocator: std.mem.Allocator, low_threshold: u8, high_threshold: u8) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+fn pgmHat(image: Image, allocator: std.mem.Allocator, low_threshold: u8, high_threshold: u8) !*Image {
+    var new_image = try Image.empty(allocator, image.header);
 
     var point: Coordinates = .default;
 
@@ -30,8 +30,8 @@ fn ppmHat(
     high_green_threshold: u8,
     low_blue_threshold: u8,
     high_blue_threshold: u8,
-) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+) !*Image {
+    var new_image = try Image.empty(allocator, image.header);
 
     var point: Coordinates = .default;
 

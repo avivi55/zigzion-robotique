@@ -1,10 +1,10 @@
 const std = @import("std");
-const Image = @import("Image.zig");
+const Image = @import("Image.zig").Image;
 const Coordinates = @import("Image.zig").Coordinates;
 const Pixel = @import("Image.zig").Pixel;
 
-fn pgmThreshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+pub fn pgmThreshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !*Image {
+    var new_image: *Image = try Image.empty(allocator, image.header);
 
     var point: Coordinates = .default;
 
@@ -20,14 +20,17 @@ fn pgmThreshold(image: *Image, allocator: std.mem.Allocator, threshold: u8) !Ima
     return new_image;
 }
 
-fn ppmThreshold(
+pub fn ppmThreshold(
     image: *Image,
     allocator: std.mem.Allocator,
     red_threshold: u8,
     green_threshold: u8,
     blue_threshold: u8,
-) !Image {
-    var new_image: Image = try Image.empty(allocator, image.header);
+) !*Image {
+    std.debug.assert(image.header.image_format == .PPM);
+
+    var new_image = try Image.empty(allocator, image.header);
+    new_image.header.image_format = .PGM;
 
     var point: Coordinates = .default;
 
